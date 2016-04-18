@@ -29,18 +29,18 @@ public final class Parser {
         List<OpIndex> opIndices = new ArrayList<>();
         Set<Integer> visited = new HashSet<>();
         while (!slices.isEmpty()) {
-            Slice next = slices.pop();
-            Range range = next.getRange();
+            Range range = slices.pop().getRange();
             OpIndex opIndex;
+            Token next;
             do {
                 opIndex = null;
                 for (int i = range.getStartInclusive(); i < range.getEndExclusive(); i++) {
                     if (visited.contains(i)) {
                         continue;
                     }
-                    Token token = tokens.get(i);
-                    if (token instanceof OperatorToken) {
-                        Operator op = ((OperatorToken) token).getOperator();
+                    next = tokens.get(i);
+                    if (next instanceof OperatorToken) {
+                        Operator op = ((OperatorToken) next).getOperator();
                         if (opIndex == null || op.precedence() < opIndex.op.precedence()) {
                             opIndex = new OpIndex(i, op);
                         }
@@ -55,25 +55,21 @@ public final class Parser {
         Map<Range, TreeNode> nodes = new HashMap<>();
         AtomicInteger c = new AtomicInteger();
         for (OpIndex opIndex : opIndices) {
-            TreeNode leftNode = leftNode(tokens, nodes, opIndex, c);
+            TreeNode next = null;
+            TreeNode left = leftNode(tokens, nodes, opIndex.index, c);
             switch (opIndex.op) {
                 case KLEENE_STAR:
-                case KLEENE_PLUS: {
-                    TreeNode node = TreeNode.join(leftNode, TreeNode.nodeFor(opIndex.op, new Range(opIndex.index)), c.incrementAndGet());
-                    nodes.put(node.getRange(), node);
+                case KLEENE_PLUS:
+                    next = TreeNode.join(left, TreeNode.nodeFor(opIndex.op, new Range(opIndex.index)), c.incrementAndGet());
                     break;
-                }
-                case CONCATENATION: {
-                    TreeNode node = TreeNode.join(leftNode, rightNode(tokens, nodes, opIndex, c), c.incrementAndGet());
-                    nodes.put(node.getRange(), node);
+                case CONCATENATION:
+                    next = TreeNode.join(left, rightNode(tokens, nodes, opIndex.index, c), c.incrementAndGet());
                     break;
-                }
-                case ALTERNATION: {
-                    TreeNode node = TreeNode.or(leftNode, rightNode(tokens, nodes, opIndex, c), c.incrementAndGet());
-                    nodes.put(node.getRange(), node);
+                case ALTERNATION:
+                    next = TreeNode.or(left, rightNode(tokens, nodes, opIndex.index, c), c.incrementAndGet());
                     break;
-                }
             }
+            nodes.put(next.getRange(), next);
         }
         return new ParseTree(
                 nodes.isEmpty()
@@ -82,8 +78,7 @@ public final class Parser {
         );
     }
 
-    private static TreeNode leftNode(List<Token> tokens, Map<Range, TreeNode> nodes, OpIndex opIndex, AtomicInteger c) {
-        int index = opIndex.index;
+    private static TreeNode leftNode(List<Token> tokens, Map<Range, TreeNode> nodes, int index, AtomicInteger c) {
         do {
             --index;
             for (Map.Entry<Range, TreeNode> e : nodes.entrySet()) {
@@ -96,8 +91,7 @@ public final class Parser {
         return TreeNode.nodeFor(tokens.get(index), c.incrementAndGet(), new Range(index));
     }
 
-    private static TreeNode rightNode(List<Token> tokens, Map<Range, TreeNode> nodes, OpIndex opIndex, AtomicInteger c) {
-        int index = opIndex.index;
+    private static TreeNode rightNode(List<Token> tokens, Map<Range, TreeNode> nodes, int index, AtomicInteger c) {
         do {
             ++index;
             for (Map.Entry<Range, TreeNode> e : nodes.entrySet()) {
@@ -130,36 +124,36 @@ public final class Parser {
     private static List<Token> tokenize(String regex) {
         StringBuilder buf = new StringBuilder(regex);
         List<Token> tokens = new ArrayList<>();
-        char current;
+        char next;
         Character prev = null;
         for (int i = 0, n = buf.length(); i < n; i++) {
-            current = buf.charAt(i);
+            next = buf.charAt(i);
             if (i == 0) {
-                if (current == Operator.ALTERNATION.value()) {
+                if (next == Operator.ALTERNATION.value()) {
                     tokens.add(new Epsilon());
                 }
             } else if (prev == Parenthesis.LEFT.value() || prev == Operator.ALTERNATION.value()) {
-                if (current == Operator.ALTERNATION.value() || current == Parenthesis.RIGHT.value()) {
+                if (next == Operator.ALTERNATION.value() || next == Parenthesis.RIGHT.value()) {
                     tokens.add(new Epsilon());
                 }
-            } else if (!Operator.isOperator(current) && current != Parenthesis.RIGHT.value()) {
+            } else if (!Operator.isOperator(next) && next != Parenthesis.RIGHT.value()) {
                 tokens.add(new OperatorToken(Operator.CONCATENATION));
             }
             Operator op;
             Parenthesis p;
-            if (current == EscapeCharacter.SYMBOL) {
+            if (next == EscapeCharacter.SYMBOL) {
                 tokens.add(new EscapeCharacter());
-            } else if ((op = Operator.find(current)) != null) {
+            } else if ((op = Operator.find(next)) != null) {
                 tokens.add(new OperatorToken(op));
                 if (i == n - 1 && op == Operator.ALTERNATION) {
                     tokens.add(new Epsilon());
                 }
-            } else if ((p = Parenthesis.find(current)) != null) {
+            } else if ((p = Parenthesis.find(next)) != null) {
                 tokens.add(p == Parenthesis.LEFT ? new LeftParenthesis() : new RightParenthesis());
             } else {
-                tokens.add(new CharToken(current));
+                tokens.add(new CharToken(next));
             }
-            prev = current;
+            prev = next;
         }
         return tokens;
     }
@@ -169,9 +163,8 @@ public final class Parser {
             int index;
             do {
                 index = -1;
-                for (int i = 0, tokensSize = tokens.size(); i < tokensSize; i++) {
-                    Token token = tokens.get(i);
-                    if (token instanceof EscapeCharacter) {
+                for (int i = 0, n = tokens.size(); i < n; i++) {
+                    if (tokens.get(i) instanceof EscapeCharacter) {
                         index = i;
                         break;
                     }
@@ -186,10 +179,11 @@ public final class Parser {
             } while (index != -1);
         }
         { /* detect dangling meta-characters */
-            for (int i = 0, tokensSize = tokens.size(); i < tokensSize; i++) {
-                Token token = tokens.get(i);
-                if (token instanceof OperatorToken) {
-                    Operator op = ((OperatorToken) token).getOperator();
+            Token next;
+            for (int i = 0, n = tokens.size(); i < n; i++) {
+                next = tokens.get(i);
+                if (next instanceof OperatorToken) {
+                    Operator op = ((OperatorToken) next).getOperator();
                     Token prev;
                     switch (op) {
                         case KLEENE_STAR: {
@@ -218,7 +212,7 @@ public final class Parser {
         Map<Integer, Deque<Slice>> slices = new HashMap<>();
         int level = 0;
         Token next;
-        for (int i = 0; i < tokens.size(); i++) {
+        for (int i = 0, n = tokens.size(); i < n; i++) {
             next = tokens.get(i);
             if (next instanceof ParenthesisToken) {
                 if (((ParenthesisToken) next).isRight()) {
@@ -231,10 +225,8 @@ public final class Parser {
                     }
                     Slice nextSlice = new Slice(new Range(cursor.index + 1, i));
                     Deque<Slice> higherLevelSlices = slices.get(level + 1);
-                    if (higherLevelSlices != null) {
-                        while (!higherLevelSlices.isEmpty()) {
-                            nextSlice.getChildren().add(higherLevelSlices.pop());
-                        }
+                    if (higherLevelSlices != null) while (!higherLevelSlices.isEmpty()) {
+                        nextSlice.getChildren().add(higherLevelSlices.pop());
                     }
                     slices.computeIfAbsent(level, l -> new ArrayDeque<>()).push(nextSlice);
                     --level;
