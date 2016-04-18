@@ -51,16 +51,16 @@ public final class TreeNode {
 
     static TreeNode join(TreeNode left, TreeNode right, int n) {
         TreeNode parent = new TreeNode("r" + n, Range.join(left.getRange(), right.getRange()));
-        parent.children.add(left);
         parent.children.add(right);
+        parent.children.add(left);
         return parent;
     }
 
     static TreeNode or(TreeNode left, TreeNode right, int n) {
         TreeNode parent = new TreeNode("r" + n, Range.join(left.getRange(), right.getRange()));
-        parent.children.add(left);
-        parent.children.add(new TreeNode(Operator.ALTERNATION.toString(), new Range(left.getRange().getEndExclusive())));
         parent.children.add(right);
+        parent.children.add(new TreeNode(Operator.ALTERNATION.toString(), new Range(left.getRange().getEndExclusive())));
+        parent.children.add(left);
         return parent;
     }
 
