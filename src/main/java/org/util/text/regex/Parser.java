@@ -17,66 +17,7 @@ public final class Parser {
         applyEscapeCharacters(tokens);
         validate(tokens);
         normalize(tokens);
-        Deque<Slice> slices = new ArrayDeque<>();
-        slices.push(makeSlice(tokens));
-        while (true) {
-            List<Slice> children = slices.peek().getChildren();
-            if (children.isEmpty()) {
-                break;
-            }
-            Collections.sort(children);
-            children.forEach(slices::push);
-        }
-        List<OpIndex> opIndices = new ArrayList<>();
-        Set<Integer> visited = new HashSet<>();
-        while (!slices.isEmpty()) {
-            Range range = slices.pop().getRange();
-            OpIndex opIndex;
-            Token next;
-            do {
-                opIndex = null;
-                for (int i = range.getStartInclusive(); i < range.getEndExclusive(); i++) {
-                    if (visited.contains(i)) {
-                        continue;
-                    }
-                    next = tokens.get(i);
-                    if (next instanceof OperatorToken) {
-                        Operator op = ((OperatorToken) next).getOperator();
-                        if (opIndex == null || op.precedence() < opIndex.op.precedence()) {
-                            opIndex = new OpIndex(i, op);
-                        }
-                    }
-                }
-                if (opIndex != null) {
-                    opIndices.add(opIndex);
-                    visited.add(opIndex.index);
-                }
-            } while (opIndex != null);
-        }
-        Map<Range, TreeNode> nodes = new HashMap<>();
-        AtomicInteger c = new AtomicInteger();
-        for (OpIndex opIndex : opIndices) {
-            TreeNode left = leftNode(tokens, nodes, opIndex.index, c);
-            TreeNode next = null;
-            switch (opIndex.op) {
-                case KLEENE_STAR:
-                case KLEENE_PLUS:
-                    next = TreeNode.join(left, TreeNode.nodeFor(opIndex.op, new Range(opIndex.index)), c.incrementAndGet());
-                    break;
-                case CONCATENATION:
-                    next = TreeNode.join(left, rightNode(tokens, nodes, opIndex.index, c), c.incrementAndGet());
-                    break;
-                case ALTERNATION:
-                    next = TreeNode.or(left, rightNode(tokens, nodes, opIndex.index, c), c.incrementAndGet());
-                    break;
-            }
-            nodes.put(next.getRange(), next);
-        }
-        return new ParseTree(
-                nodes.isEmpty()
-                        ? TreeNode.nodeFor(new Epsilon(), 0, new Range(0))
-                        : nodes.values().iterator().next()
-        );
+        return buildTree(tokens, indexOperators(tokens, makeSlice(tokens)));
     }
 
     private static List<Token> tokenize(String regex) {
@@ -215,6 +156,18 @@ public final class Parser {
         tokens.add(new RightParenthesis());
     }
 
+    private static final class Cursor {
+
+        private final int index;
+        private final Token token;
+
+        private Cursor(int index, Token token) {
+            this.index = index;
+            this.token = token;
+        }
+
+    }
+
     private static Slice makeSlice(List<Token> tokens) {
         Deque<Cursor> cursors = new ArrayDeque<>();
         Map<Integer, Deque<Slice>> slices = new HashMap<>();
@@ -249,6 +202,86 @@ public final class Parser {
         return slices.get(1).pop();
     }
 
+    private static final class OpIndex {
+
+        private final int index;
+        private final Operator op;
+
+        private OpIndex(int index, Operator op) {
+            this.index = index;
+            this.op = op;
+        }
+
+    }
+
+    private static List<OpIndex> indexOperators(List<Token> tokens, Slice rootSlice) {
+        Deque<Slice> slices = new ArrayDeque<>();
+        slices.push(rootSlice);
+        while (true) {
+            List<Slice> children = slices.peek().getChildren();
+            if (children.isEmpty()) {
+                break;
+            }
+            Collections.sort(children);
+            children.forEach(slices::push);
+        }
+        List<OpIndex> opIndices = new ArrayList<>();
+        Set<Integer> visited = new HashSet<>();
+        Range nextRange;
+        OpIndex nextOp;
+        Token nextToken;
+        while (!slices.isEmpty()) {
+            nextRange = slices.pop().getRange();
+            do {
+                nextOp = null;
+                for (int i = nextRange.getStartInclusive(); i < nextRange.getEndExclusive(); i++) {
+                    if (visited.contains(i)) {
+                        continue;
+                    }
+                    nextToken = tokens.get(i);
+                    if (nextToken instanceof OperatorToken) {
+                        Operator op = ((OperatorToken) nextToken).getOperator();
+                        if (nextOp == null || op.precedence() < nextOp.op.precedence()) {
+                            nextOp = new OpIndex(i, op);
+                        }
+                    }
+                }
+                if (nextOp != null) {
+                    opIndices.add(nextOp);
+                    visited.add(nextOp.index);
+                }
+            } while (nextOp != null);
+        }
+        return opIndices;
+    }
+
+    private static ParseTree buildTree(List<Token> tokens, List<OpIndex> opIndices) {
+        Map<Range, TreeNode> nodes = new HashMap<>();
+        AtomicInteger c = new AtomicInteger();
+        for (OpIndex opIndex : opIndices) {
+            TreeNode left = leftNode(tokens, nodes, opIndex.index, c);
+            TreeNode next = null;
+            switch (opIndex.op) {
+                case KLEENE_STAR:
+                case KLEENE_PLUS:
+                    next = TreeNode.join(left, TreeNode.nodeFor(opIndex.op, new Range(opIndex.index)), c.incrementAndGet());
+                    break;
+                case CONCATENATION:
+                    next = TreeNode.join(left, rightNode(tokens, nodes, opIndex.index, c), c.incrementAndGet());
+                    break;
+                case ALTERNATION:
+                    next = TreeNode.or(left, rightNode(tokens, nodes, opIndex.index, c), c.incrementAndGet());
+                    break;
+            }
+            nodes.put(next.getRange(), next);
+        }
+        return new ParseTree(
+                nodes.isEmpty()
+                        ? TreeNode.nodeFor(new Epsilon(), 0, new Range(0))
+                        : nodes.values().iterator().next()
+        );
+    }
+
     private static TreeNode leftNode(List<Token> tokens, Map<Range, TreeNode> nodes, int index, AtomicInteger c) {
         do {
             --index;
@@ -271,30 +304,6 @@ public final class Parser {
             }
         } while (index < tokens.size() && tokens.get(index) instanceof LeftParenthesis);
         return TreeNode.nodeFor(tokens.get(index), c.incrementAndGet(), new Range(index));
-    }
-
-    private static final class Cursor {
-
-        private final int index;
-        private final Token token;
-
-        private Cursor(int index, Token token) {
-            this.index = index;
-            this.token = token;
-        }
-
-    }
-
-    private static final class OpIndex {
-
-        private final int index;
-        private final Operator op;
-
-        private OpIndex(int index, Operator op) {
-            this.index = index;
-            this.op = op;
-        }
-
     }
 
 }
