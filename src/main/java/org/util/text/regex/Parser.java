@@ -13,7 +13,7 @@ public final class Parser {
 
     public static ParseTree parse(String regex) {
         List<Token> tokens = tokenize(regex);
-        Validator.validate(tokens);
+        SyntaxValidator.validate(tokens);
         Slice rootSlice = makeSlice(tokens);
         Deque<Slice> slices = new ArrayDeque<>();
         slices.push(rootSlice);

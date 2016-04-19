@@ -1,13 +1,14 @@
 package org.util.text.regex;
 
 import java.util.List;
+import java.util.regex.PatternSyntaxException;
 
 /**
  * @author ahmad
  */
-final class Validator {
+final class SyntaxValidator {
 
-    private Validator() {
+    private SyntaxValidator() {
     }
 
     static void validate(List<Token> tokens) {
@@ -22,7 +23,7 @@ final class Validator {
                 }
                 if (index != -1) {
                     if (index == tokens.size() - 1) {
-                        parseException("Illegal/Unsupported escape sequence", tokens, index + 1);
+                        syntaxException("Illegal/Unsupported escape sequence", tokens, index + 1);
                     }
                     tokens.remove(index);
                     tokens.set(index, new CharToken(tokens.get(index).value()));
@@ -38,12 +39,12 @@ final class Validator {
                 } else if (token instanceof RightParenthesis) {
                     --level;
                     if (level < 0) {
-                        parseException("Unmatched closing \')\'", tokens, i - 1);
+                        syntaxException("Unmatched closing \')\'", tokens, i - 1);
                     }
                 }
             }
             if (level != 0) {
-                parseException("Unclosed group", tokens, tokens.size());
+                syntaxException("Unclosed group", tokens, tokens.size());
             }
         }
         { /* detect dangling meta-characters */
@@ -55,13 +56,15 @@ final class Validator {
                     switch (op) {
                         case KLEENE_STAR:
                             if (i == 0 || !((prev = tokens.get(i - 1)) instanceof CharToken) && !(prev instanceof RightParenthesis)) {
-                                parseException("Dangling meta-character \'*\'", tokens, i);
+                                syntaxException("Dangling meta-character \'*\'", tokens, i);
                             }
                             break;
                         case KLEENE_PLUS:
-                            if (i == 0 || !((prev = tokens.get(i - 1)) instanceof CharToken) && !(prev instanceof RightParenthesis)
-                                    && !(prev instanceof OperatorToken && ((OperatorToken) prev).getOperator() == Operator.KLEENE_STAR)) {
-                                parseException("Dangling meta-character \'+\'", tokens, i);
+                            if (i == 0 || !((prev = tokens.get(i - 1)) instanceof CharToken)
+                                    && !(prev instanceof RightParenthesis)
+                                    && !(OperatorToken.test(prev, Operator.KLEENE_STAR))
+                                    && !(OperatorToken.test(prev, Operator.KLEENE_PLUS))) {
+                                syntaxException("Dangling meta-character \'+\'", tokens, i);
                             }
                             break;
                     }
@@ -114,23 +117,12 @@ final class Validator {
         tokens.add(new RightParenthesis());
     }
 
-    private static void parseException(String message, List<Token> tokens, int index) {
-        throw new IllegalStateException(message + (index >= 0 ? " [token index = " + index + "]" : "") + "\n" + addMarker(tokens, index));
-    }
-
-    private static String addMarker(List<Token> tokens, int index) {
+    private static void syntaxException(String message, List<Token> tokens, int index) {
         StringBuilder sb = new StringBuilder();
         for (Token token : tokens) {
             sb.append(token.value());
         }
-        if (index >= 0) {
-            sb.append('\n');
-            for (int i = 0; i < index; i++) {
-                sb.append(' ');
-            }
-            sb.append('^');
-        }
-        return sb.toString();
+        throw new PatternSyntaxException(message, sb.toString(), index);
     }
 
 }
