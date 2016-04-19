@@ -31,9 +31,9 @@ public final class ParseTree {
         sb.append(indent).append("+-: ").append(node.getLabel()).append(System.lineSeparator());
         indent += lastChild ? "    " : "|   ";
         List<TreeNode> children = node.getChildren();
-        for (int i = 0, childrenSize = children.size(); i < childrenSize; i++) {
+        for (int i = children.size() - 1; i >= 0; i--) {
             TreeNode t = children.get(i);
-            prettyPrint(sb, t, indent, false, i == childrenSize - 1);
+            prettyPrint(sb, t, indent, false, i == 0);
         }
     }
 
