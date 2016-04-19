@@ -2,6 +2,7 @@ package org.util.text.regex;
 
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.PatternSyntaxException;
 
 /**
  * @author ahmad
@@ -13,10 +14,11 @@ public final class Parser {
 
     public static ParseTree parse(String regex) {
         List<Token> tokens = tokenize(regex);
-        SyntaxValidator.validate(tokens);
-        Slice rootSlice = makeSlice(tokens);
+        applyEscapeCharacters(tokens);
+        validate(tokens);
+        normalize(tokens);
         Deque<Slice> slices = new ArrayDeque<>();
-        slices.push(rootSlice);
+        slices.push(makeSlice(tokens));
         while (true) {
             List<Slice> children = slices.peek().getChildren();
             if (children.isEmpty()) {
@@ -77,30 +79,6 @@ public final class Parser {
         );
     }
 
-    private static TreeNode leftNode(List<Token> tokens, Map<Range, TreeNode> nodes, int index, AtomicInteger c) {
-        do {
-            --index;
-            for (Map.Entry<Range, TreeNode> e : nodes.entrySet()) {
-                if (e.getKey().isOnBound(index)) {
-                    return nodes.remove(e.getKey());
-                }
-            }
-        } while (index >= 0 && tokens.get(index) instanceof RightParenthesis);
-        return TreeNode.nodeFor(tokens.get(index), c.incrementAndGet(), new Range(index));
-    }
-
-    private static TreeNode rightNode(List<Token> tokens, Map<Range, TreeNode> nodes, int index, AtomicInteger c) {
-        do {
-            ++index;
-            for (Map.Entry<Range, TreeNode> e : nodes.entrySet()) {
-                if (e.getKey().isOnBound(index)) {
-                    return nodes.remove(e.getKey());
-                }
-            }
-        } while (index < tokens.size() && tokens.get(index) instanceof LeftParenthesis);
-        return TreeNode.nodeFor(tokens.get(index), c.incrementAndGet(), new Range(index));
-    }
-
     private static List<Token> tokenize(String regex) {
         List<Token> tokens = new ArrayList<>();
         char nextChar;
@@ -119,6 +97,122 @@ public final class Parser {
             }
         }
         return tokens;
+    }
+
+    private static void applyEscapeCharacters(List<Token> tokens) {
+        int index;
+        do {
+            index = -1;
+            for (int i = 0, n = tokens.size(); i < n && index == -1; i++) {
+                if (tokens.get(i) instanceof EscapeCharacter) {
+                    index = i;
+                }
+            }
+            if (index != -1) {
+                if (index == tokens.size() - 1) {
+                    syntaxException("Illegal/Unsupported escape sequence", tokens, index + 1);
+                }
+                tokens.remove(index);
+                tokens.set(index, new CharToken(tokens.get(index).value()));
+            }
+        } while (index != -1);
+    }
+
+    private static void validate(List<Token> tokens) {
+        { /* check parentheses */
+            int level = 0;
+            for (int i = 0, n = tokens.size(); i < n; i++) {
+                Token token = tokens.get(i);
+                if (token instanceof LeftParenthesis) {
+                    ++level;
+                } else if (token instanceof RightParenthesis) {
+                    --level;
+                    if (level < 0) {
+                        syntaxException("Unmatched closing \')\'", tokens, i - 1);
+                    }
+                }
+            }
+            if (level != 0) {
+                syntaxException("Unclosed group", tokens, tokens.size());
+            }
+        }
+        { /* detect dangling meta-characters */
+            Token next, prev;
+            for (int i = 0, n = tokens.size(); i < n; i++) {
+                next = tokens.get(i);
+                if (next instanceof OperatorToken) {
+                    Operator op = ((OperatorToken) next).getOperator();
+                    switch (op) {
+                        case KLEENE_STAR:
+                            if (i == 0 || !((prev = tokens.get(i - 1)) instanceof CharToken) && !(prev instanceof RightParenthesis)) {
+                                syntaxException("Dangling meta-character \'*\'", tokens, i);
+                            }
+                            break;
+                        case KLEENE_PLUS:
+                            if (i == 0 || !((prev = tokens.get(i - 1)) instanceof CharToken)
+                                    && !(prev instanceof RightParenthesis)
+                                    && !(OperatorToken.test(prev, Operator.KLEENE_STAR))
+                                    && !(OperatorToken.test(prev, Operator.KLEENE_PLUS))) {
+                                syntaxException("Dangling meta-character \'+\'", tokens, i);
+                            }
+                            break;
+                    }
+                }
+            }
+        }
+    }
+
+    private static void syntaxException(String message, List<Token> tokens, int index) {
+        StringBuilder sb = new StringBuilder();
+        for (Token token : tokens) {
+            sb.append(token.value());
+        }
+        throw new PatternSyntaxException(message, sb.toString(), index);
+    }
+
+    private static void normalize(List<Token> tokens) {
+        int index;
+        Token toBeAdded;
+        Token next, prev;
+        do {
+            index = -1;
+            toBeAdded = null;
+            prev = null;
+            for (int i = 0, n = tokens.size(); i < n && index == -1; i++) {
+                next = tokens.get(i);
+                if (i == 0) {
+                    if (OperatorToken.test(next, Operator.ALTERNATION)) {
+                        index = i;
+                        toBeAdded = new Epsilon();
+                    }
+                } else if (i == n - 1) {
+                    if (OperatorToken.test(next, Operator.ALTERNATION)) {
+                        index = i + 1;
+                        toBeAdded = new Epsilon();
+                    } else if (next instanceof RightParenthesis
+                            && (prev instanceof LeftParenthesis || OperatorToken.test(prev, Operator.ALTERNATION))) {
+                        index = i;
+                        toBeAdded = new Epsilon();
+                    }
+                } else if (prev instanceof LeftParenthesis || OperatorToken.test(prev, Operator.ALTERNATION)) {
+                    if (OperatorToken.test(next, Operator.ALTERNATION) || next instanceof RightParenthesis) {
+                        index = i;
+                        toBeAdded = new Epsilon();
+                    }
+                } else if (!(next instanceof OperatorToken) && !(next instanceof RightParenthesis)
+                        && (prev instanceof CharToken || prev instanceof RightParenthesis
+                        || OperatorToken.test(prev, Operator.KLEENE_STAR) || OperatorToken.test(prev, Operator.KLEENE_PLUS))) {
+                    index = i;
+                    toBeAdded = new OperatorToken(Operator.CONCATENATION);
+                }
+                prev = next;
+            }
+            if (index != -1) {
+                tokens.add(index, toBeAdded);
+            }
+        } while (index != -1);
+        tokens.add(0, new LeftParenthesis());
+        tokens.add(new RightParenthesis());
     }
 
     private static Slice makeSlice(List<Token> tokens) {
@@ -153,6 +247,30 @@ public final class Parser {
             }
         }
         return slices.get(1).pop();
+    }
+
+    private static TreeNode leftNode(List<Token> tokens, Map<Range, TreeNode> nodes, int index, AtomicInteger c) {
+        do {
+            --index;
+            for (Map.Entry<Range, TreeNode> e : nodes.entrySet()) {
+                if (e.getKey().isOnBound(index)) {
+                    return nodes.remove(e.getKey());
+                }
+            }
+        } while (index >= 0 && tokens.get(index) instanceof RightParenthesis);
+        return TreeNode.nodeFor(tokens.get(index), c.incrementAndGet(), new Range(index));
+    }
+
+    private static TreeNode rightNode(List<Token> tokens, Map<Range, TreeNode> nodes, int index, AtomicInteger c) {
+        do {
+            ++index;
+            for (Map.Entry<Range, TreeNode> e : nodes.entrySet()) {
+                if (e.getKey().isOnBound(index)) {
+                    return nodes.remove(e.getKey());
+                }
+            }
+        } while (index < tokens.size() && tokens.get(index) instanceof LeftParenthesis);
+        return TreeNode.nodeFor(tokens.get(index), c.incrementAndGet(), new Range(index));
     }
 
     private static final class Cursor {
