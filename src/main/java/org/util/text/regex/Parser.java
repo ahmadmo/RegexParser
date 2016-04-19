@@ -55,8 +55,8 @@ public final class Parser {
         Map<Range, TreeNode> nodes = new HashMap<>();
         AtomicInteger c = new AtomicInteger();
         for (OpIndex opIndex : opIndices) {
-            TreeNode next = null;
             TreeNode left = leftNode(tokens, nodes, opIndex.index, c);
+            TreeNode next = null;
             switch (opIndex.op) {
                 case KLEENE_STAR:
                 case KLEENE_PLUS:

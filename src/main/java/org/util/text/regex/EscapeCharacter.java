@@ -8,7 +8,7 @@ final class EscapeCharacter extends AbstractToken {
     static final char SYMBOL = '\\';
 
     @Override
-    public Character value() {
+    public char value() {
         return SYMBOL;
     }
 

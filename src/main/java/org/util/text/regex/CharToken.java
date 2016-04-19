@@ -12,7 +12,7 @@ final class CharToken extends AbstractToken {
     }
 
     @Override
-    public Character value() {
+    public char value() {
         return value;
     }
 

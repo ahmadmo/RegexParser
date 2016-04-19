@@ -16,7 +16,7 @@ final class OperatorToken extends AbstractToken {
     }
 
     @Override
-    public Character value() {
+    public char value() {
         return operator.value();
     }
 

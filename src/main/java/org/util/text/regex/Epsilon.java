@@ -8,7 +8,7 @@ final class Epsilon extends AbstractToken {
     private static final char SYMBOL = 'ε';
 
     @Override
-    public Character value() {
+    public char value() {
         return SYMBOL;
     }
 

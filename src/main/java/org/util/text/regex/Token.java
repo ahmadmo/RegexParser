@@ -5,6 +5,6 @@ package org.util.text.regex;
  */
 interface Token {
 
-    Character value();
+    char value();
 
 }
