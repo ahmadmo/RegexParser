@@ -6,12 +6,12 @@ import java.util.List;
 /**
  * @author ahmad
  */
-final class Slice implements Comparable<Slice> {
+final class Group implements Comparable<Group> {
 
     private final Range range;
-    private final List<Slice> children = new ArrayList<>();
+    private final List<Group> children = new ArrayList<>();
 
-    Slice(Range range) {
+    Group(Range range) {
         this.range = range;
     }
 
@@ -19,20 +19,20 @@ final class Slice implements Comparable<Slice> {
         return range;
     }
 
-    List<Slice> getChildren() {
+    List<Group> getChildren() {
         return children;
     }
 
     private int weight() {
         int w = 1;
-        for (Slice slice : children) {
-            w += slice.weight();
+        for (Group group : children) {
+            w += group.weight();
         }
         return w;
     }
 
     @Override
-    public int compareTo(Slice that) {
+    public int compareTo(Group that) {
         return Integer.compare(weight(), that.weight());
     }
 

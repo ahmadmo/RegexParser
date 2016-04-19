@@ -17,7 +17,7 @@ public final class Parser {
         applyEscapeCharacters(tokens);
         validate(tokens);
         normalize(tokens);
-        return buildTree(tokens, indexOperators(tokens, makeSlice(tokens)));
+        return buildTree(tokens, indexOperators(tokens, group(tokens)));
     }
 
     private static List<Token> tokenize(String regex) {
@@ -168,9 +168,9 @@ public final class Parser {
 
     }
 
-    private static Slice makeSlice(List<Token> tokens) {
+    private static Group group(List<Token> tokens) {
         Deque<Cursor> cursors = new ArrayDeque<>();
-        Map<Integer, Deque<Slice>> slices = new HashMap<>();
+        Map<Integer, Deque<Group>> groups = new HashMap<>();
         int level = 0;
         Token next;
         for (int i = 0, n = tokens.size(); i < n; i++) {
@@ -184,12 +184,12 @@ public final class Parser {
                             break;
                         }
                     }
-                    Slice nextSlice = new Slice(new Range(cursor.index + 1, i));
-                    Deque<Slice> higherLevelSlices = slices.get(level + 1);
-                    if (higherLevelSlices != null) while (!higherLevelSlices.isEmpty()) {
-                        nextSlice.getChildren().add(higherLevelSlices.pop());
+                    Group nextGroup = new Group(new Range(cursor.index + 1, i));
+                    Deque<Group> higherLevelGroups = groups.get(level + 1);
+                    if (higherLevelGroups != null) while (!higherLevelGroups.isEmpty()) {
+                        nextGroup.getChildren().add(higherLevelGroups.pop());
                     }
-                    slices.computeIfAbsent(level, l -> new ArrayDeque<>()).push(nextSlice);
+                    groups.computeIfAbsent(level, l -> new ArrayDeque<>()).push(nextGroup);
                     --level;
                 } else {
                     ++level;
@@ -199,7 +199,7 @@ public final class Parser {
                 cursors.push(new Cursor(i, next));
             }
         }
-        return slices.get(1).pop();
+        return groups.get(1).pop();
     }
 
     private static final class OpIndex {
@@ -214,24 +214,24 @@ public final class Parser {
 
     }
 
-    private static List<OpIndex> indexOperators(List<Token> tokens, Slice rootSlice) {
-        Deque<Slice> slices = new ArrayDeque<>();
-        slices.push(rootSlice);
+    private static List<OpIndex> indexOperators(List<Token> tokens, Group rootGroup) {
+        Deque<Group> groups = new ArrayDeque<>();
+        groups.push(rootGroup);
         while (true) {
-            List<Slice> children = slices.peek().getChildren();
+            List<Group> children = groups.peek().getChildren();
             if (children.isEmpty()) {
                 break;
             }
             Collections.sort(children);
-            children.forEach(slices::push);
+            children.forEach(groups::push);
         }
         List<OpIndex> opIndices = new ArrayList<>();
         Set<Integer> visited = new HashSet<>();
         Range nextRange;
         OpIndex nextOp;
         Token nextToken;
-        while (!slices.isEmpty()) {
-            nextRange = slices.pop().getRange();
+        while (!groups.isEmpty()) {
+            nextRange = groups.pop().getRange();
             do {
                 nextOp = null;
                 for (int i = nextRange.getStartInclusive(); i < nextRange.getEndExclusive(); i++) {
