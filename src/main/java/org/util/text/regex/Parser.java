@@ -12,9 +12,8 @@ public final class Parser {
     }
 
     public static ParseTree parse(String regex) {
-        checkParentheses(regex);
         List<Token> tokens = tokenize(regex);
-        normalize(tokens);
+        validate(tokens);
         Slice rootSlice = makeSlice(tokens);
         Deque<Slice> slices = new ArrayDeque<>();
         slices.push(rootSlice);
@@ -102,69 +101,34 @@ public final class Parser {
         return TreeNode.nodeFor(tokens.get(index), c.incrementAndGet(), new Range(index));
     }
 
-    private static void checkParentheses(String regex) {
-        int lp = 0, rp = 0;
-        for (int i = 0, n = regex.length(); i < n; i++) {
-            switch (regex.charAt(i)) {
-                case '(':
-                    ++lp;
-                    break;
-                case ')':
-                    ++rp;
-                    break;
-            }
-        }
-        if (lp != rp) {
-            throw new IllegalStateException("Unbalanced Parenthesis. ( = " + lp + ", ) = " + rp);
-        }
-    }
-
     private static List<Token> tokenize(String regex) {
-        StringBuilder buf = new StringBuilder(regex);
         List<Token> tokens = new ArrayList<>();
-        char next;
-        Character prev = null;
-        for (int i = 0, n = buf.length(); i < n; i++) {
-            next = buf.charAt(i);
-            if (i == 0) {
-                if (next == Operator.ALTERNATION.value()) {
-                    tokens.add(new Epsilon());
-                }
-            } else if (prev == Parenthesis.LEFT.value() || prev == Operator.ALTERNATION.value()) {
-                if (next == Operator.ALTERNATION.value() || next == Parenthesis.RIGHT.value()) {
-                    tokens.add(new Epsilon());
-                }
-            } else if (!Operator.isOperator(next) && next != Parenthesis.RIGHT.value()) {
-                tokens.add(new OperatorToken(Operator.CONCATENATION));
-            }
-            Operator op;
-            Parenthesis p;
-            if (next == EscapeCharacter.SYMBOL) {
+        char nextChar;
+        Operator op;
+        Parenthesis p;
+        for (int i = 0, n = regex.length(); i < n; i++) {
+            nextChar = regex.charAt(i);
+            if (nextChar == EscapeCharacter.SYMBOL) {
                 tokens.add(new EscapeCharacter());
-            } else if ((op = Operator.find(next)) != null) {
+            } else if ((op = Operator.find(nextChar)) != null) {
                 tokens.add(new OperatorToken(op));
-                if (i == n - 1 && op == Operator.ALTERNATION) {
-                    tokens.add(new Epsilon());
-                }
-            } else if ((p = Parenthesis.find(next)) != null) {
+            } else if ((p = Parenthesis.find(nextChar)) != null) {
                 tokens.add(p == Parenthesis.LEFT ? new LeftParenthesis() : new RightParenthesis());
             } else {
-                tokens.add(new CharToken(next));
+                tokens.add(new CharToken(nextChar));
             }
-            prev = next;
         }
         return tokens;
     }
 
-    private static void normalize(List<Token> tokens) {
+    private static void validate(List<Token> tokens) {
         { /* apply escape characters */
             int index;
             do {
                 index = -1;
-                for (int i = 0, n = tokens.size(); i < n; i++) {
+                for (int i = 0, n = tokens.size(); i < n && index == -1; i++) {
                     if (tokens.get(i) instanceof EscapeCharacter) {
                         index = i;
-                        break;
                     }
                 }
                 if (index != -1) {
@@ -175,6 +139,23 @@ public final class Parser {
                     tokens.set(index, new CharToken(tokens.get(index).value()));
                 }
             } while (index != -1);
+        }
+        { /* check parentheses */
+            int level = 0;
+            for (int i = 0, n = tokens.size(); i < n; i++) {
+                Token token = tokens.get(i);
+                if (token instanceof LeftParenthesis) {
+                    ++level;
+                } else if (token instanceof RightParenthesis) {
+                    --level;
+                    if (level < 0) {
+                        throw new IllegalStateException("Unbalanced Parenthesis. (token index = " + i + ")");
+                    }
+                }
+            }
+            if (level != 0) {
+                throw new IllegalStateException("Unbalanced Parenthesis.");
+            }
         }
         { /* detect dangling meta-characters */
             Token next, prev;
@@ -197,6 +178,48 @@ public final class Parser {
                     }
                 }
             }
+        }
+        { /* add Epsilon & Concatenation tokens */
+            int index;
+            Token toBeAdded;
+            Token next, prev;
+            do {
+                index = -1;
+                toBeAdded = null;
+                prev = null;
+                for (int i = 0, n = tokens.size(); i < n && index == -1; i++) {
+                    next = tokens.get(i);
+                    if (i == 0) {
+                        if (OperatorToken.test(next, Operator.ALTERNATION)) {
+                            index = i;
+                            toBeAdded = new Epsilon();
+                        }
+                    } else if (i == n - 1) {
+                        if (OperatorToken.test(next, Operator.ALTERNATION)) {
+                            index = i + 1;
+                            toBeAdded = new Epsilon();
+                        } else if (next instanceof RightParenthesis
+                                && (prev instanceof LeftParenthesis || OperatorToken.test(prev, Operator.ALTERNATION))) {
+                            index = i;
+                            toBeAdded = new Epsilon();
+                        }
+                    } else if (prev instanceof LeftParenthesis || OperatorToken.test(prev, Operator.ALTERNATION)) {
+                        if (OperatorToken.test(next, Operator.ALTERNATION) || next instanceof RightParenthesis) {
+                            index = i;
+                            toBeAdded = new Epsilon();
+                        }
+                    } else if (!(next instanceof OperatorToken) && !(next instanceof RightParenthesis)
+                            && (prev instanceof CharToken || prev instanceof RightParenthesis
+                            || OperatorToken.test(prev, Operator.KLEENE_STAR) || OperatorToken.test(prev, Operator.KLEENE_PLUS))) {
+                        index = i;
+                        toBeAdded = new OperatorToken(Operator.CONCATENATION);
+                    }
+                    prev = next;
+                }
+                if (index != -1) {
+                    tokens.add(index, toBeAdded);
+                }
+            } while (index != -1);
         }
         tokens.add(0, new LeftParenthesis());
         tokens.add(new RightParenthesis());

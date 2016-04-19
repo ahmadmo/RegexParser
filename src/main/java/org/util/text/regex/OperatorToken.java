@@ -20,4 +20,8 @@ final class OperatorToken extends AbstractToken {
         return operator.value();
     }
 
+    static boolean test(Token token, Operator op) {
+        return token instanceof OperatorToken && ((OperatorToken) token).getOperator() == op;
+    }
+
 }
