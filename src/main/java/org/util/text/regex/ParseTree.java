@@ -26,9 +26,9 @@ public final class ParseTree {
 
     private static void prettyPrint(StringBuilder sb, TreeNode node, String indent, boolean root, boolean lastChild) {
         if (!root) {
-            sb.append(indent).append('|').append(System.lineSeparator());
+            sb.append(indent).append("|\n");
         }
-        sb.append(indent).append("+-: ").append(node.getLabel()).append(System.lineSeparator());
+        sb.append(indent).append("+-: ").append(node.getLabel()).append('\n');
         indent += lastChild ? "    " : "|   ";
         List<TreeNode> children = node.getChildren();
         for (int i = children.size() - 1; i >= 0; i--) {
