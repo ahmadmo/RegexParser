@@ -87,7 +87,6 @@ public final class Parser {
                 }
             }
         } while (index >= 0 && tokens.get(index) instanceof RightParenthesis);
-//        index = opIndex.index - 1;
         return TreeNode.nodeFor(tokens.get(index), c.incrementAndGet(), new Range(index));
     }
 
@@ -100,7 +99,6 @@ public final class Parser {
                 }
             }
         } while (index < tokens.size() && tokens.get(index) instanceof LeftParenthesis);
-//        index = opIndex.index + 1;
         return TreeNode.nodeFor(tokens.get(index), c.incrementAndGet(), new Range(index));
     }
 
@@ -179,26 +177,23 @@ public final class Parser {
             } while (index != -1);
         }
         { /* detect dangling meta-characters */
-            Token next;
+            Token next, prev;
             for (int i = 0, n = tokens.size(); i < n; i++) {
                 next = tokens.get(i);
                 if (next instanceof OperatorToken) {
                     Operator op = ((OperatorToken) next).getOperator();
-                    Token prev;
                     switch (op) {
-                        case KLEENE_STAR: {
+                        case KLEENE_STAR:
                             if (i == 0 || !((prev = tokens.get(i - 1)) instanceof CharToken) && !(prev instanceof RightParenthesis)) {
                                 throw new IllegalStateException("Dangling meta-character. (token index = " + i + ")");
                             }
                             break;
-                        }
-                        case KLEENE_PLUS: {
+                        case KLEENE_PLUS:
                             if (i == 0 || !((prev = tokens.get(i - 1)) instanceof CharToken) && !(prev instanceof RightParenthesis)
                                     && !(prev instanceof OperatorToken && ((OperatorToken) prev).getOperator() == Operator.KLEENE_STAR)) {
                                 throw new IllegalStateException("Dangling meta-character. (token index = " + i + ")");
                             }
                             break;
-                        }
                     }
                 }
             }
@@ -243,8 +238,8 @@ public final class Parser {
 
     private static final class Cursor {
 
-        private int index;
-        private Token token;
+        private final int index;
+        private final Token token;
 
         private Cursor(int index, Token token) {
             this.index = index;
